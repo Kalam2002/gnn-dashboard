@@ -345,13 +345,14 @@ export default function App() {
         </div>
 
         {/* Endpoint bar */}
-        <div style={{ background:"#0f172a",border:"1px solid #1e293b",borderRadius:14,padding:"14px 20px",marginBottom:24,display:"flex",gap:24,flexWrap:"wrap",alignItems:"center" }}>
+        {/* <div style={{ background:"#0f172a",border:"1px solid #1e293b",borderRadius:14,padding:"14px 20px",marginBottom:24,display:"flex",gap:24,flexWrap:"wrap",alignItems:"center" }}>
           <span style={{ fontSize:11,color:"#22c55e",fontWeight:700,fontFamily:"monospace" }}>GET</span>
           <code style={{ fontSize:12,color:"#38bdf8",fontFamily:"monospace" }}>{API_BASE}/logs</code>
           <span style={{ fontSize:11,color:"#f97316",fontWeight:700,fontFamily:"monospace" }}>POST</span>
           <code style={{ fontSize:12,color:"#a3e635",fontFamily:"monospace" }}>{API_BASE}/predict</code>
           <span style={{ marginLeft:"auto",fontSize:11,color:"#334155" }}>polling every {POLL_MS/1000}s</span>
         </div>
+         */}
 
         {/* Metrics */}
         <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:16,marginBottom:24 }}>
