@@ -312,7 +312,7 @@ export default function App() {
         @keyframes blink{0%,100%{box-shadow:0 0 0 0 #ef444440}50%{box-shadow:0 0 0 8px #ef444400}}
       `}</style>
 
-      <div style={{ maxWidth:1280,margin:"0 auto" }}>
+      <div style={{ width:"100%" }}>
 
         {/* Alert */}
         {newAlert && (
