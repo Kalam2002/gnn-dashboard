@@ -11,18 +11,22 @@ const API_BASE = "https://gnn-api-t7k7.onrender.com";
 const POLL_MS  = 2000;
 
 // ── Normalize attack labels from any source ───────────────────────────────────
-// Maps any variant string → one of the canonical ATTACK_COLORS keys
-function normalizeAttack(label = "") {
+// Maps any variant string → one of the canonical ATTACK_COLORS keysfunction normalizeAttack(label = "") {
   const l = label.toLowerCase().trim();
-  if (l === "benign")                              return "benign";
-  if (l === "ddos" || l.includes("ddos"))          return "ddos";
-  if (l === "xss"  || l.includes("xss"))           return "xss";
-  if (l === "password" || l.includes("password") || l.includes("pass")) return "password";
-  if (l === "sql injection" || l === "injection" || l.includes("sql"))   return "sql injection";
-  if (l === "port scan"   || l.includes("port"))   return "port scan";
-  if (l === "brute force" || l.includes("brute"))  return "brute force";
-  if (l === "mitm"        || l.includes("mitm"))   return "mitm";
-  return "other";
+
+  // known mappings
+  if (l === "benign") return "benign";
+  if (l.includes("ddos")) return "ddos";
+  if (l.includes("xss")) return "xss";
+  if (l.includes("password") || l.includes("pass")) return "password";
+  if (l.includes("sql")) return "sql injection";
+  if (l.includes("port")) return "port scan";
+  if (l.includes("brute")) return "brute force";
+  if (l.includes("mitm")) return "mitm";
+
+  // IMPORTANT:
+  // return original attack name instead of "other"
+  return l;
 }
 
 // ── Attack colours ────────────────────────────────────────────────────────────
@@ -38,7 +42,7 @@ const ATTACK_COLORS = {
 };
 
 function getAttackColor(label = "") {
-  return ATTACK_COLORS[label.toLowerCase()] || ATTACK_COLORS.other;
+  return ATTACK_COLORS[label.toLowerCase()] || "#6b7280";
 }
 function isAttack(pred) {
   return pred.toLowerCase() !== "benign";
