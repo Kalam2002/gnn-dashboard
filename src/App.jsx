@@ -48,6 +48,18 @@ async function geolocateIP(ip) {
   return null;
 }
 
+function normalizeAttack(label = "") {
+  const l = label.toLowerCase().trim();
+
+  if (l.includes("sql")) return "sql injection";
+  if (l === "injection") return "sql injection"; // ✅ important
+  if (l.includes("xss")) return "xss";
+  if (l.includes("mitm")) return "mitm";
+  if (l.includes("port")) return "port scan";
+
+  return l === "benign" ? "benign" : "other";
+}
+
 // ── Leaflet Map ───────────────────────────────────────────────────────────────
 function ThreatMap({ geoPoints }) {
   const containerRef = useRef(null);
