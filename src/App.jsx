@@ -226,21 +226,69 @@ export default function App() {
   const [geoStatus, setGeoStatus] = useState("idle");
   const prevCountRef = useRef(0);
 
+  
   const fetchLogs = async () => {
-    try {
-      const res  = await fetch(`${API_BASE}/logs?limit=100`);
-      const data = await res.json();
-      setLogs(data);
-      setStatus("connected");
-      if (data.length > prevCountRef.current) {
-        const preds = data[0]?.response?.predictions || [];
-        const hit   = preds.find(isAttack);
-        if (hit) { setNewAlert({ type:hit, time:new Date().toLocaleTimeString() }); setTimeout(()=>setNewAlert(null),4000); }
-      }
-      prevCountRef.current = data.length;
-    } catch { setStatus("error"); }
-  };
+  try {
+    const [gnnRes, honeypotRes] = await Promise.all([
+      fetch(`${API_BASE}/logs?limit=100`),
+      fetch("https://central-api-production-47bf.up.railway.app/logs")
+    ]);
 
+    const gnnData = await gnnRes.json();
+    const honeypotRaw = await honeypotRes.json();
+
+    // ✅ FIX: transform your API response properly
+    const honeypotData = honeypotRaw.map(row => ({
+      timestamp: Math.floor(new Date(row.timestamp).getTime() / 1000),
+
+      request: [{
+        src_ip: row.ip === "::1" ? "127.0.0.1" : row.ip,
+        dst_ip: "honeypot",
+        proto: row.method || "GET",
+        src_bytes: 0,
+        dst_bytes: 0,
+        src_pkts: 1,
+        dst_pkts: 1,
+      }],
+
+      response: {
+        predictions: [
+          (row.attack_type || "benign").toLowerCase()
+        ],
+        num_flows: 1,
+      }
+    }));
+
+    const merged = [...honeypotData, ...gnnData];
+
+    setLogs(prev => {
+      const combined = [...merged, ...prev];
+
+      const seen = new Set();
+      const unique = [];
+
+      for (const item of combined) {
+        const key =
+          item.timestamp +
+          (item.request?.[0]?.src_ip || "") +
+          (item.response?.predictions?.[0] || "");
+
+        if (!seen.has(key)) {
+          seen.add(key);
+          unique.push(item);
+        }
+      }
+
+      return unique.slice(0, 500);
+    });
+
+    setStatus("connected");
+
+  } catch (err) {
+    console.log("FETCH ERROR:", err);
+    setStatus("error");
+  }
+};
   useEffect(() => {
     if (!polling) return;
     fetchLogs();
