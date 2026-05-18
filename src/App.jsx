@@ -12,7 +12,6 @@ const POLL_MS  = 2000;
 
 // ── Normalize attack labels from any source ───────────────────────────────────
 // Maps any variant string → one of the canonical ATTACK_COLORS keysfunction normalizeAttack(label = "") {
-  const l = label.toLowerCase().trim();
 
   // known mappings
   function normalizeAttack(label = "") {
