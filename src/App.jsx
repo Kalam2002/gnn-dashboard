@@ -4,11 +4,26 @@ import {
   Tooltip, ResponsiveContainer, XAxis, YAxis,
   CartesianGrid, Legend,
 } from "recharts";
-import { ShieldAlert, Activity, Database, Wifi, WifiOff, AlertTriangle, MapPin } from "lucide-react";
+import { ShieldAlert, Database, Wifi, WifiOff, AlertTriangle, MapPin } from "lucide-react";
 
 // ── Config ───────────────────────────────────────────────────────────────────
 const API_BASE = "https://gnn-api-t7k7.onrender.com";
 const POLL_MS  = 2000;
+
+// ── Normalize attack labels from any source ───────────────────────────────────
+// Maps any variant string → one of the canonical ATTACK_COLORS keys
+function normalizeAttack(label = "") {
+  const l = label.toLowerCase().trim();
+  if (l === "benign")                              return "benign";
+  if (l === "ddos" || l.includes("ddos"))          return "ddos";
+  if (l === "xss"  || l.includes("xss"))           return "xss";
+  if (l === "password" || l.includes("password") || l.includes("pass")) return "password";
+  if (l === "sql injection" || l === "injection" || l.includes("sql"))   return "sql injection";
+  if (l === "port scan"   || l.includes("port"))   return "port scan";
+  if (l === "brute force" || l.includes("brute"))  return "brute force";
+  if (l === "mitm"        || l.includes("mitm"))   return "mitm";
+  return "other";
+}
 
 // ── Attack colours ────────────────────────────────────────────────────────────
 const ATTACK_COLORS = {
@@ -21,6 +36,7 @@ const ATTACK_COLORS = {
   mitm:            "#06b6d4",
   other:           "#6b7280",
 };
+
 function getAttackColor(label = "") {
   return ATTACK_COLORS[label.toLowerCase()] || ATTACK_COLORS.other;
 }
@@ -28,10 +44,16 @@ function isAttack(pred) {
   return pred.toLowerCase() !== "benign";
 }
 function isPrivateIP(ip = "") {
-  return ip.startsWith("192.168.") || ip.startsWith("10.") || /^172\.(1[6-9]|2\d|3[01])\./.test(ip) || ip === "127.0.0.1";
+  return (
+    ip.startsWith("192.168.") ||
+    ip.startsWith("10.")      ||
+    ip === "127.0.0.1"        ||
+    ip === "::1"              ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(ip)
+  );
 }
 
-// ── Geo cache ─────────────────────────────────────────────────────────────────
+// ── IP Geo cache ──────────────────────────────────────────────────────────────
 const geoCache = {};
 async function geolocateIP(ip) {
   if (!ip || isPrivateIP(ip)) return null;
@@ -40,24 +62,17 @@ async function geolocateIP(ip) {
     const res  = await fetch(`https://ipapi.co/${ip}/json/`);
     const data = await res.json();
     if (data.latitude && data.longitude) {
-      const r = { ip, lat: data.latitude, lng: data.longitude, city: data.city || "Unknown", country: data.country_name || "Unknown", org: data.org || "" };
+      const r = {
+        ip, lat: data.latitude, lng: data.longitude,
+        city: data.city || "Unknown",
+        country: data.country_name || "Unknown",
+        org: data.org || "",
+      };
       geoCache[ip] = r;
       return r;
     }
   } catch {}
   return null;
-}
-
-function normalizeAttack(label = "") {
-  const l = label.toLowerCase().trim();
-
-  if (l.includes("sql")) return "sql injection";
-  if (l === "injection") return "sql injection"; // ✅ important
-  if (l.includes("xss")) return "xss";
-  if (l.includes("mitm")) return "mitm";
-  if (l.includes("port")) return "port scan";
-
-  return l === "benign" ? "benign" : "other";
 }
 
 // ── Leaflet Map ───────────────────────────────────────────────────────────────
@@ -67,46 +82,41 @@ function ThreatMap({ geoPoints }) {
   const markersRef   = useRef([]);
   const loadedRef    = useRef(false);
 
-  // Load Leaflet CSS once
   useEffect(() => {
     if (!document.getElementById("leaflet-css")) {
-      const link  = document.createElement("link");
-      link.id     = "leaflet-css";
-      link.rel    = "stylesheet";
-      link.href   = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      const link = document.createElement("link");
+      link.id    = "leaflet-css";
+      link.rel   = "stylesheet";
+      link.href  = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
       document.head.appendChild(link);
     }
   }, []);
 
-  // Init map once container is mounted
   useEffect(() => {
     if (loadedRef.current || !containerRef.current) return;
 
     function initMap() {
       if (loadedRef.current || !containerRef.current) return;
       loadedRef.current = true;
-
       const L   = window.L;
       const map = L.map(containerRef.current, {
         center: [20, 10], zoom: 2, minZoom: 1,
         zoomControl: true, attributionControl: false,
         worldCopyJump: true,
       });
-
       L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
         subdomains: "abcd", maxZoom: 19,
       }).addTo(map);
-
       mapRef.current = map;
     }
 
     if (window.L) {
       initMap();
     } else {
-      const script    = document.createElement("script");
-      script.src      = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
-      script.onload   = initMap;
-      script.onerror  = () => console.error("Leaflet failed to load");
+      const script   = document.createElement("script");
+      script.src     = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+      script.onload  = initMap;
+      script.onerror = () => console.error("Leaflet failed to load");
       document.head.appendChild(script);
     }
 
@@ -115,11 +125,9 @@ function ThreatMap({ geoPoints }) {
     };
   }, []);
 
-  // Update markers
   useEffect(() => {
     const L = window.L;
     if (!L || !mapRef.current) return;
-
     markersRef.current.forEach(m => m.remove());
     markersRef.current = [];
 
@@ -146,7 +154,6 @@ function ThreatMap({ geoPoints }) {
             <div style="color:#94a3b8;margin-bottom:2px;">Org: <span style="color:#e2e8f0">${pt.org || "—"}</span></div>
             <div style="color:#94a3b8;">Hits: <span style="color:#ef4444;font-weight:700">${pt.count}</span></div>
           </div>`);
-
       markersRef.current.push(marker);
     });
   }, [geoPoints]);
@@ -167,7 +174,7 @@ function ThreatMap({ geoPoints }) {
   );
 }
 
-// ── UI components ─────────────────────────────────────────────────────────────
+// ── UI Components ─────────────────────────────────────────────────────────────
 function Card({ title, value, icon, color, subtitle }) {
   return (
     <div style={{ background:"linear-gradient(135deg,rgba(30,41,59,0.9),rgba(15,23,42,0.95))", padding:24, borderRadius:20, border:`1px solid ${color}30`, boxShadow:`0 0 40px ${color}15,inset 0 1px 0 rgba(255,255,255,0.05)`, position:"relative", overflow:"hidden" }}>
@@ -223,7 +230,7 @@ function LineTooltip({ active, payload, label }) {
   return (
     <div style={{ background:"#1e293b",border:"1px solid #334155",borderRadius:10,padding:"10px 14px",fontSize:12 }}>
       <div style={{ color:"#64748b",marginBottom:6 }}>Event #{label}</div>
-      {payload.map(p => <div key={p.dataKey} style={{ color:p.color,marginBottom:2 }}>{p.dataKey}: <strong>{p.value}</strong></div>)}
+      {payload.map(p=><div key={p.dataKey} style={{ color:p.color,marginBottom:2 }}>{p.dataKey}: <strong>{p.value}</strong></div>)}
     </div>
   );
 }
@@ -238,69 +245,80 @@ export default function App() {
   const [geoStatus, setGeoStatus] = useState("idle");
   const prevCountRef = useRef(0);
 
-  
+  // ── Fetch + merge both APIs ─────────────────────────────────────────────────
   const fetchLogs = async () => {
-  try {
-    const [gnnRes, honeypotRes] = await Promise.all([
-      fetch(`${API_BASE}/logs?limit=100`),
-      fetch("https://central-api-production-47bf.up.railway.app/logs")
-    ]);
+    try {
+      const [gnnRes, honeypotRes] = await Promise.all([
+        fetch(`${API_BASE}/logs?limit=100`),
+        fetch("https://central-api-production-47bf.up.railway.app/logs"),
+      ]);
 
-    const gnnData = await gnnRes.json();
-    const honeypotRaw = await honeypotRes.json();
+      const gnnRaw      = await gnnRes.json();
+      const honeypotRaw = await honeypotRes.json();
 
-    // ✅ FIX: transform your API response properly
-    const honeypotData = honeypotRaw.map(row => ({
-      timestamp: Math.floor(new Date(row.timestamp).getTime() / 1000),
+      // Normalize GNN logs
+      const gnnData = gnnRaw.map(log => ({
+        ...log,
+        source: "gnn",
+        response: {
+          ...log.response,
+          predictions: (log.response?.predictions || []).map(normalizeAttack),
+        },
+      }));
 
-      request: [{
-        src_ip: row.ip === "::1" ? "127.0.0.1" : row.ip,
-        dst_ip: "honeypot",
-        proto: row.method || "GET",
-        src_bytes: 0,
-        dst_bytes: 0,
-        src_pkts: 1,
-        dst_pkts: 1,
-      }],
+      // Normalize honeypot logs
+      const honeypotData = honeypotRaw.map(row => ({
+        id:        `hp-${row.id || row.timestamp}`,
+        source:    "honeypot",
+        timestamp: Math.floor(new Date(row.timestamp).getTime() / 1000),
+        request: [{
+          src_ip:    row.ip === "::1" ? "127.0.0.1" : (row.ip || "unknown"),
+          dst_ip:    "honeypot",
+          proto:     row.method || "GET",
+          service:   row.path   || "-",
+          src_bytes: 0,
+          dst_bytes: 0,
+          src_pkts:  1,
+          dst_pkts:  1,
+        }],
+        response: {
+          predictions: [normalizeAttack(row.attack_type || "other")],
+          num_flows:   1,
+        },
+      }));
 
-      response: {
-        predictions: [
-          (row.attack_type || "benign").toLowerCase()
-        ],
-        num_flows: 1,
-      }
-    }));
-
-    const merged = [...honeypotData, ...gnnData];
-
-    setLogs(prev => {
-      const combined = [...merged, ...prev];
-
-      const seen = new Set();
+      // Merge + deduplicate by timestamp + src_ip + prediction
+      const merged = [...gnnData, ...honeypotData];
+      const seen   = new Set();
       const unique = [];
+      for (const item of merged) {
+        const key = `${item.timestamp}|${item.request?.[0]?.src_ip || ""}|${item.response?.predictions?.[0] || ""}`;
+        if (!seen.has(key)) { seen.add(key); unique.push(item); }
+      }
 
-      for (const item of combined) {
-        const key =
-          item.timestamp +
-          (item.request?.[0]?.src_ip || "") +
-          (item.response?.predictions?.[0] || "");
+      // Sort newest first
+      unique.sort((a, b) => b.timestamp - a.timestamp);
 
-        if (!seen.has(key)) {
-          seen.add(key);
-          unique.push(item);
+      setLogs(unique.slice(0, 500));
+      setStatus("connected");
+
+      // Alert on new attack
+      if (unique.length > prevCountRef.current) {
+        const preds = unique[0]?.response?.predictions || [];
+        const hit   = preds.find(isAttack);
+        if (hit) {
+          setNewAlert({ type: hit, time: new Date().toLocaleTimeString() });
+          setTimeout(() => setNewAlert(null), 4000);
         }
       }
+      prevCountRef.current = unique.length;
 
-      return unique.slice(0, 500);
-    });
+    } catch (err) {
+      console.error("Fetch error:", err);
+      setStatus("error");
+    }
+  };
 
-    setStatus("connected");
-
-  } catch (err) {
-    console.log("FETCH ERROR:", err);
-    setStatus("error");
-  }
-};
   useEffect(() => {
     if (!polling) return;
     fetchLogs();
@@ -308,7 +326,7 @@ export default function App() {
     return () => clearInterval(iv);
   }, [polling]);
 
-  // Geolocate attacker IPs
+  // ── Geolocate attacker IPs ──────────────────────────────────────────────────
   useEffect(() => {
     if (!logs.length) return;
     const ipMap = {};
@@ -330,38 +348,47 @@ export default function App() {
         return geo ? { ...geo, ...meta } : null;
       })
     ).then(results => {
-      const pts = results.filter(r=>r.status==="fulfilled"&&r.value).map(r=>r.value);
+      const pts = results.filter(r => r.status==="fulfilled" && r.value).map(r => r.value);
       setGeoPoints(pts);
       setGeoStatus("done");
     });
   }, [logs]);
 
-  // Derived metrics
-  const totalFlows  = logs.reduce((a,l)=>a+(l.response?.num_flows||0),0);
+  // ── Derived metrics ─────────────────────────────────────────────────────────
+  const totalFlows = logs.reduce((a, l) => a + (l.response?.num_flows || 0), 0);
+
   const attackTypeCounts = {};
   let totalAttacks = 0;
-  logs.forEach(log=>{
-    (log.response?.predictions||[]).forEach(p=>{
-      if(!isAttack(p))return;
+  logs.forEach(log => {
+    (log.response?.predictions || []).forEach(p => {
+      if (!isAttack(p)) return;
       totalAttacks++;
-      const k=p.toLowerCase();
-      attackTypeCounts[k]=(attackTypeCounts[k]||0)+1;
+      const k = p.toLowerCase();
+      attackTypeCounts[k] = (attackTypeCounts[k] || 0) + 1;
     });
   });
-  const attackRate = totalFlows>0?(totalAttacks/totalFlows)*100:0;
-  const pieData    = Object.entries(attackTypeCounts).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value}));
+
+  const attackRate     = totalFlows > 0 ? (totalAttacks / totalFlows) * 100 : 0;
+  const pieData        = Object.entries(attackTypeCounts).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value}));
   const allAttackTypes = [...new Set(logs.flatMap(l=>(l.response?.predictions||[]).filter(isAttack).map(p=>p.toLowerCase())))];
-  const lineData   = logs.slice(0,30).reverse().map((log,i)=>{
-    const byType={};
+
+  const lineData = logs.slice(0,30).reverse().map((log,i)=>{
+    const byType = {};
     (log.response?.predictions||[]).forEach(p=>{ if(!isAttack(p))return; const k=p.toLowerCase(); byType[k]=(byType[k]||0)+1; });
-    return {name:i+1,...byType};
+    return { name:i+1, ...byType };
   });
-  const ipCounts={};
-  logs.forEach(log=>{ if(!(log.response?.predictions||[]).some(isAttack))return; const ip=log.request?.[0]?.src_ip; if(ip)ipCounts[ip]=(ipCounts[ip]||0)+1; });
+
+  const ipCounts = {};
+  logs.forEach(log=>{
+    if (!(log.response?.predictions||[]).some(isAttack)) return;
+    const ip = log.request?.[0]?.src_ip;
+    if (ip) ipCounts[ip] = (ipCounts[ip]||0)+1;
+  });
   const topIPs = Object.entries(ipCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
 
+  // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div style={{ background:"#020817",minHeight:"100vh",color:"white",padding:"24px 28px",fontFamily:"'Inter','Segoe UI',sans-serif" }}>
+    <div style={{ background:"#020817",minHeight:"100vh",color:"white",padding:"24px",fontFamily:"'Inter','Segoe UI',sans-serif" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
         *{box-sizing:border-box;}
@@ -374,7 +401,7 @@ export default function App() {
 
       <div style={{ width:"100%" }}>
 
-        {/* Alert */}
+        {/* Alert banner */}
         {newAlert && (
           <div style={{ background:"linear-gradient(90deg,#7f1d1d,#991b1b)",border:"1px solid #ef444460",borderRadius:12,padding:"12px 18px",marginBottom:20,display:"flex",alignItems:"center",gap:10,animation:"slideDown 0.3s ease" }}>
             <AlertTriangle size={18} color="#fca5a5"/>
@@ -391,35 +418,33 @@ export default function App() {
                 GNN Intrusion Detection System
               </h1>
             </div>
-            <p style={{ color:"#475569",margin:0,fontSize:14 }}>AI-powered real-time network threat analysis · geotracking enabled</p>
+            <p style={{ color:"#475569",margin:0,fontSize:14 }}>
+              AI-powered real-time network threat analysis · GNN + Honeypot · geotracking enabled
+            </p>
           </div>
           <div style={{ display:"flex",gap:10,alignItems:"center" }}>
+            {/* Source pills */}
+            <span style={{ fontSize:11,padding:"4px 10px",borderRadius:99,background:"#1e3a5f",border:"1px solid #3b82f640",color:"#60a5fa" }}>GNN API</span>
+            <span style={{ fontSize:11,padding:"4px 10px",borderRadius:99,background:"#1a1a2e",border:"1px solid #a855f740",color:"#c084fc" }}>Honeypot</span>
             <div style={{ display:"flex",alignItems:"center",gap:8,padding:"8px 16px",borderRadius:99,background:status==="connected"?"#14532d30":"#1e293b",border:`1px solid ${status==="connected"?"#22c55e40":"#334155"}`,fontSize:13,fontWeight:600,color:status==="connected"?"#86efac":status==="error"?"#fca5a5":"#475569" }}>
               {status==="connected"?<Wifi size={14}/>:<WifiOff size={14}/>}
               {status==="connected"?"Live":status==="error"?"Error":"Offline"}
             </div>
-            <button onClick={()=>setPolling(p=>!p)} style={{ padding:"10px 22px",borderRadius:99,border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,background:polling?"linear-gradient(135deg,#7f1d1d,#991b1b)":"linear-gradient(135deg,#1d4ed8,#2563eb)",color:"white",boxShadow:polling?"0 0 20px #ef444430":"0 0 20px #3b82f630",transition:"all 0.2s" }}>
+            <button
+              onClick={()=>setPolling(p=>!p)}
+              style={{ padding:"10px 22px",borderRadius:99,border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,background:polling?"linear-gradient(135deg,#7f1d1d,#991b1b)":"linear-gradient(135deg,#1d4ed8,#2563eb)",color:"white",boxShadow:polling?"0 0 20px #ef444430":"0 0 20px #3b82f630",transition:"all 0.2s" }}
+            >
               {polling?"Stop Polling":"Start Polling"}
             </button>
           </div>
         </div>
 
-        {/* Endpoint bar */}
-        {/* <div style={{ background:"#0f172a",border:"1px solid #1e293b",borderRadius:14,padding:"14px 20px",marginBottom:24,display:"flex",gap:24,flexWrap:"wrap",alignItems:"center" }}>
-          <span style={{ fontSize:11,color:"#22c55e",fontWeight:700,fontFamily:"monospace" }}>GET</span>
-          <code style={{ fontSize:12,color:"#38bdf8",fontFamily:"monospace" }}>{API_BASE}/logs</code>
-          <span style={{ fontSize:11,color:"#f97316",fontWeight:700,fontFamily:"monospace" }}>POST</span>
-          <code style={{ fontSize:12,color:"#a3e635",fontFamily:"monospace" }}>{API_BASE}/predict</code>
-          <span style={{ marginLeft:"auto",fontSize:11,color:"#334155" }}>polling every {POLL_MS/1000}s</span>
-        </div>
-         */}
-
         {/* Metrics */}
         <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:16,marginBottom:24 }}>
-          <Card title="Total Flows" value={totalFlows} icon={<Database size={18}/>} color="#3b82f6" subtitle="All flows processed by GNN"/>
-          <Card title="Attacks Detected" value={totalAttacks} icon={<ShieldAlert size={18}/>} color="#ef4444" subtitle={`${attackRate.toFixed(1)}% of total flows`}/>
-          <Card title="Attack Types" value={pieData.length} icon={<AlertTriangle size={18}/>} color="#f97316" subtitle="Distinct threat categories"/>
-          <Card title="Geolocated IPs" value={geoPoints.length} icon={<MapPin size={18}/>} color="#a855f7" subtitle={geoStatus==="loading"?"Resolving…":"Attacker locations mapped"}/>
+          <Card title="Total Flows"       value={totalFlows}     icon={<Database size={18}/>}      color="#3b82f6" subtitle="GNN + Honeypot combined"/>
+          <Card title="Attacks Detected"  value={totalAttacks}   icon={<ShieldAlert size={18}/>}   color="#ef4444" subtitle={`${attackRate.toFixed(1)}% of total flows`}/>
+          <Card title="Attack Types"      value={pieData.length} icon={<AlertTriangle size={18}/>} color="#f97316" subtitle="Distinct threat categories"/>
+          <Card title="Geolocated IPs"    value={geoPoints.length} icon={<MapPin size={18}/>}      color="#a855f7" subtitle={geoStatus==="loading"?"Resolving…":"Attacker locations mapped"}/>
         </div>
 
         {/* Severity */}
@@ -431,15 +456,15 @@ export default function App() {
           <SeverityBar attackRate={attackRate}/>
         </div>
 
-        {/* ── GLOBAL THREAT MAP ── */}
+        {/* Global Threat Map */}
         <div style={{ background:"#0f172a",border:"1px solid #1e293b",borderRadius:16,padding:"20px",marginBottom:24 }}>
           <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,flexWrap:"wrap",gap:10 }}>
             <div style={{ display:"flex",alignItems:"center",gap:10 }}>
               <MapPin size={16} color="#a855f7"/>
               <h3 style={{ margin:0,fontSize:15,fontWeight:700,color:"#e2e8f0" }}>Global Threat Map</h3>
-              {geoStatus==="loading"&&<span style={{ fontSize:11,color:"#eab308",background:"#eab30815",padding:"2px 10px",borderRadius:99,border:"1px solid #eab30830" }}>Resolving IPs…</span>}
-              {geoStatus==="done"&&geoPoints.length>0&&<span style={{ fontSize:11,color:"#22c55e",background:"#22c55e15",padding:"2px 10px",borderRadius:99,border:"1px solid #22c55e30" }}>{geoPoints.length} attackers mapped</span>}
-              {geoPoints.length===0&&polling&&geoStatus!=="loading"&&<span style={{ fontSize:11,color:"#475569" }}>Waiting for public IPs — private IPs (192.168.x, 10.x) cannot be geolocated</span>}
+              {geoStatus==="loading" && <span style={{ fontSize:11,color:"#eab308",background:"#eab30815",padding:"2px 10px",borderRadius:99,border:"1px solid #eab30830" }}>Resolving IPs…</span>}
+              {geoStatus==="done" && geoPoints.length>0 && <span style={{ fontSize:11,color:"#22c55e",background:"#22c55e15",padding:"2px 10px",borderRadius:99,border:"1px solid #22c55e30" }}>{geoPoints.length} attackers mapped</span>}
+              {geoPoints.length===0 && polling && geoStatus!=="loading" && <span style={{ fontSize:11,color:"#475569" }}>Waiting for public IPs — private IPs cannot be geolocated</span>}
             </div>
             <div style={{ display:"flex",gap:10,flexWrap:"wrap" }}>
               {Object.entries(ATTACK_COLORS).filter(([k])=>k!=="other").map(([k,c])=>(
@@ -450,14 +475,13 @@ export default function App() {
               ))}
             </div>
           </div>
-          {/* Map always renders */}
           <div style={{ height:440,borderRadius:14,overflow:"hidden",position:"relative" }}>
             <ThreatMap geoPoints={geoPoints}/>
-            {geoPoints.length===0&&(
-              <div style={{ position:"absolute",top:0,left:0,right:0,bottom:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,pointerEvents:"none",zIndex:1000 }}>
+            {geoPoints.length===0 && (
+              <div style={{ position:"absolute",top:0,left:0,right:0,bottom:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none",zIndex:1000 }}>
                 <div style={{ background:"rgba(2,8,23,0.75)",backdropFilter:"blur(4px)",border:"1px solid #1e293b",borderRadius:12,padding:"16px 24px",textAlign:"center" }}>
-                  <MapPin size={24} color="#334155" style={{ marginBottom:8 }}/>
-                  <p style={{ color:"#475569",fontSize:13,margin:0 }}>
+                  <MapPin size={24} color="#334155"/>
+                  <p style={{ color:"#475569",fontSize:13,margin:"8px 0 0" }}>
                     {!polling?"Start polling to enable geotracking":"No public IPs yet — private IPs can't be geolocated"}
                   </p>
                 </div>
@@ -474,13 +498,22 @@ export default function App() {
               ?<div style={{ height:260,display:"flex",alignItems:"center",justifyContent:"center",color:"#334155",fontSize:13 }}>No attack data yet</div>
               :<ResponsiveContainer width="100%" height={260}>
                 <AreaChart data={lineData}>
-                  <defs>{allAttackTypes.map(t=>(<linearGradient key={t} id={`g-${t}`} x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={getAttackColor(t)} stopOpacity={0.3}/><stop offset="95%" stopColor={getAttackColor(t)} stopOpacity={0}/></linearGradient>))}</defs>
+                  <defs>
+                    {allAttackTypes.map(t=>(
+                      <linearGradient key={t} id={`g-${t.replace(/\s/g,"-")}`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%"  stopColor={getAttackColor(t)} stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor={getAttackColor(t)} stopOpacity={0}/>
+                      </linearGradient>
+                    ))}
+                  </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b"/>
                   <XAxis dataKey="name" tick={{ fontSize:10,fill:"#475569" }}/>
                   <YAxis tick={{ fontSize:10,fill:"#475569" }} allowDecimals={false}/>
                   <Tooltip content={<LineTooltip/>}/>
                   <Legend wrapperStyle={{ fontSize:12,color:"#94a3b8" }}/>
-                  {allAttackTypes.map(t=>(<Area key={t} type="monotone" dataKey={t} stroke={getAttackColor(t)} strokeWidth={2} fill={`url(#g-${t})`}/>))}
+                  {allAttackTypes.map(t=>(
+                    <Area key={t} type="monotone" dataKey={t} stroke={getAttackColor(t)} strokeWidth={2} fill={`url(#g-${t.replace(/\s/g,"-")})`}/>
+                  ))}
                 </AreaChart>
               </ResponsiveContainer>
             }
@@ -501,8 +534,8 @@ export default function App() {
                 </ResponsiveContainer>
                 <div style={{ flex:1,display:"flex",flexDirection:"column",gap:8 }}>
                   {pieData.map(({name,value})=>{
-                    const color=getAttackColor(name);
-                    const pct=totalAttacks>0?((value/totalAttacks)*100).toFixed(1):0;
+                    const color = getAttackColor(name);
+                    const pct   = totalAttacks>0?((value/totalAttacks)*100).toFixed(1):0;
                     return (
                       <div key={name}>
                         <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3 }}>
@@ -524,13 +557,13 @@ export default function App() {
         </div>
 
         {/* Top IPs */}
-        {topIPs.length>0&&(
+        {topIPs.length>0 && (
           <div style={{ background:"#0f172a",border:"1px solid #1e293b",borderRadius:16,padding:"20px",marginBottom:24 }}>
             <h3 style={{ margin:"0 0 16px",fontSize:15,fontWeight:700,color:"#e2e8f0" }}>Top Attacker IPs</h3>
             <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
               {topIPs.map(([ip,count],i)=>{
-                const pct=(count/topIPs[0][1])*100;
-                const geo=geoCache[ip];
+                const pct = (count/topIPs[0][1])*100;
+                const geo = geoCache[ip];
                 return (
                   <div key={ip} style={{ display:"flex",alignItems:"center",gap:12 }}>
                     <span style={{ fontSize:12,color:"#475569",width:18,textAlign:"right" }}>#{i+1}</span>
@@ -559,26 +592,39 @@ export default function App() {
             <table style={{ width:"100%",borderCollapse:"collapse" }}>
               <thead>
                 <tr style={{ borderBottom:"1px solid #1e293b" }}>
-                  {["Time","Source IP","Location","Dst IP","Proto","Prediction","Bytes","Packets"].map(h=>(
+                  {["Time","Source","Source IP","Location","Dst IP","Proto","Prediction","Bytes","Packets"].map(h=>(
                     <th key={h} style={{ padding:"10px 14px",textAlign:"left",fontSize:11,fontWeight:700,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",whiteSpace:"nowrap" }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {logs.length===0?(
-                  <tr><td colSpan={8} style={{ padding:"40px",textAlign:"center",color:"#334155",fontSize:13 }}>
-                    {polling?"Waiting for events… POST to /predict":"Start polling to see live events"}
+                {logs.length===0 ? (
+                  <tr><td colSpan={9} style={{ padding:"40px",textAlign:"center",color:"#334155",fontSize:13 }}>
+                    {polling?"Waiting for events…":"Start polling to see live events"}
                   </td></tr>
-                ):logs.map((log,i)=>{
-                  const req=log.request?.[0]||{};
-                  const pred=log.response?.predictions?.[0]||"unknown";
-                  const attack=isAttack(pred);
-                  const geo=geoCache[req.src_ip];
+                ) : logs.map((log,i)=>{
+                  const req    = log.request?.[0]||{};
+                  const pred   = log.response?.predictions?.[0]||"unknown";
+                  const attack = isAttack(pred);
+                  const geo    = geoCache[req.src_ip];
                   return (
                     <tr key={i} style={{ borderBottom:"1px solid #0a1120",background:attack?"rgba(239,68,68,0.04)":"transparent" }}>
-                      <td style={{ padding:"10px 14px",fontSize:12,color:"#64748b",fontFamily:"monospace",whiteSpace:"nowrap" }}>{new Date(log.timestamp*1000).toLocaleTimeString()}</td>
+                      <td style={{ padding:"10px 14px",fontSize:12,color:"#64748b",fontFamily:"monospace",whiteSpace:"nowrap" }}>
+                        {new Date(log.timestamp*1000).toLocaleTimeString()}
+                      </td>
+                      <td style={{ padding:"10px 14px" }}>
+                        <span style={{ fontSize:10,padding:"2px 8px",borderRadius:99,fontWeight:600,
+                          background: log.source==="honeypot"?"#a855f720":"#3b82f620",
+                          color:      log.source==="honeypot"?"#c084fc":"#60a5fa",
+                          border:     log.source==="honeypot"?"1px solid #a855f740":"1px solid #3b82f640",
+                        }}>
+                          {log.source==="honeypot"?"HONEYPOT":"GNN"}
+                        </span>
+                      </td>
                       <td style={{ padding:"10px 14px",fontSize:12,fontFamily:"monospace",color:attack?"#fca5a5":"#94a3b8" }}>{req.src_ip||"—"}</td>
-                      <td style={{ padding:"10px 14px",fontSize:11,color:"#64748b",whiteSpace:"nowrap" }}>{geo?`📍 ${geo.city}, ${geo.country}`:<span style={{ color:"#334155" }}>Private IP</span>}</td>
+                      <td style={{ padding:"10px 14px",fontSize:11,color:"#64748b",whiteSpace:"nowrap" }}>
+                        {geo?`📍 ${geo.city}, ${geo.country}`:<span style={{ color:"#334155" }}>Private IP</span>}
+                      </td>
                       <td style={{ padding:"10px 14px",fontSize:12,fontFamily:"monospace",color:"#64748b" }}>{req.dst_ip||"—"}</td>
                       <td style={{ padding:"10px 14px",fontSize:12,color:"#64748b",textTransform:"uppercase" }}>{req.proto||"—"}</td>
                       <td style={{ padding:"10px 14px" }}><ThreatBadge label={pred}/></td>
