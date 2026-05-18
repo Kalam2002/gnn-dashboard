@@ -15,6 +15,10 @@ const POLL_MS  = 2000;
   const l = label.toLowerCase().trim();
 
   // known mappings
+  function normalizeAttack(label = "") {
+  const l = label.toLowerCase().trim();
+
+  // known mappings
   if (l === "benign") return "benign";
   if (l.includes("ddos")) return "ddos";
   if (l.includes("xss")) return "xss";
@@ -24,8 +28,7 @@ const POLL_MS  = 2000;
   if (l.includes("brute")) return "brute force";
   if (l.includes("mitm")) return "mitm";
 
-  // IMPORTANT:
-  // return original attack name instead of "other"
+  // keep unknown attack names
   return l;
 }
 
