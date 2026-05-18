@@ -22,7 +22,7 @@ const POLL_MS  = 2000;
   if (l.includes("ddos")) return "ddos";
   if (l.includes("xss")) return "xss";
   if (l.includes("password") || l.includes("pass")) return "password";
-  if (l.includes("sql")) return "sql injection";
+  if (l.includes("sql") || l.includes("injection")) return "sql injection";
   if (l.includes("port")) return "port scan";
   if (l.includes("brute")) return "brute force";
   if (l.includes("mitm")) return "mitm";
